@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <title>(blog brian-gorman): Lets build a Clojurescript chatroom</title>
+    <link rel="canonical" href="http://briangorman.io/posts-output/2018-3-4-chatroom/">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="//fonts.googleapis.com/css?family=Alegreya:400italic,700italic,400,700" rel="stylesheet"
+          type="text/css">
+    <link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/bootstrap/3.3.0/css/bootstrap.min.css">
+    <link href="//maxcdn.bootstrapcdn.com/font-awesome/4.2.0/css/font-awesome.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.7.0/styles/default.min.css">
+    <link href="/css/screen.css" rel="stylesheet" type="text/css" />
+</head>
+<body>
+
+
+<nav class="navbar navbar-default">
+    <div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target="#navbar" aria-expanded="false" aria-controls="navbar">
+                <span class="sr-only">Toggle navigation</span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a class="navbar-brand" href="/">(blog brian-gorman)</a>
+        </div>
+        <div id="navbar" class="navbar-collapse collapse">
+            <ul class="nav navbar-nav navbar-right">
+                <li ><a href="/">Home</a></li>
+                <li
+                ><a href="/archives/">Archives</a></li>
+                
+                <li
+                >
+                <a href="/pages-output/adoc-page/">Adoc Page</a>
+                </li>
+                
+                <li><a href="/feed.xml">RSS</a></li>
+                <li class="dropdown">
+                    <a href="#" class="dropdown-toggle" data-toggle="dropdown" role="button" aria-expanded="false">
+                        More <span class="caret"></span></a>
+                    <ul class="dropdown-menu" role="menu">
+                        <li class="dropdown-header">Links</li>
+                        <li><a href="http://cryogenweb.org/docs/home.html">Cryogen Docs</a></li>
+                        <li><a href="http://carmenla.me/blog/archives">Carmen's Blog</a></li>
+                        
+
+                        
+                        <li class="divider"></li>
+                        <li class="dropdown-header">Recent Posts</li>
+                        
+                        <li><a href="/posts-output/2018-3-4-chatroom/">Lets build a Clojurescript chatroom</a></li>
+                        
+                        
+
+                        
+                        <li class="divider"></li>
+                        <li class="dropdown-header">Tags</li>
+                        
+                        <li><a href="/tags-output/cryogen/">cryogen</a></li>
+                        
+                        <li><a href="/tags-output/asciidoc/">asciidoc</a></li>
+                        
+                        
+                    </ul>
+                </li>
+            </ul>
+        </div><!--/.nav-collapse -->
+    </div><!--/.container-fluid -->
+</nav>
+
+
+<div class="container">
+
+
+    <div class="row">
+        <div class="col-lg-12">
+            <div id="content">
+                
+<div id="post">
+    <div class="post-header">
+    <div id="post-meta" class="row">
+        <div class="col-lg-6">March 4, 2018</div>
+        
+    </div>
+    <h2>Lets build a Clojurescript chatroom</h2>
+</div>
+<div>
+    
+    <div class="paragraph">
+<p>Recently I have been exploring core.async and websockets.
+In this tutorial I will demonstrate how to build a chatroom using
+clojurescript, core.async and websockets.</p>
+</div>
+<div class="paragraph">
+<p>We will be using <a href="https://github.com/jarohen/chord">Chord</a>, <a href="https://github.com/clojure/core.async">core.async</a>, <a href="http://http-kit.org">http-kit</a> and <a href="https://reagent-project.github.io/">reagent</a>.</p>
+</div>
+<div id="toc" class="toc">
+<div id="toctitle" class="title">Table of Contents</div>
+<ul class="sectlevel2">
+<li><a href="#_core_async_fundamentals">core.async fundamentals</a></li>
+<li><a href="#_wiring_up_our_chat_room">Wiring up our chat room</a></li>
+</ul>
+</div>
+<div class="sect2">
+<h3 id="_core_async_fundamentals">core.async fundamentals</h3>
+<div class="paragraph">
+<div class="title">Interacting with channels</div>
+<p><a href="https://github.com/clojure/core.async">core.async</a> is a library for Clojure/Clojurescript that implements
+<a href="https://en.wikipedia.org/wiki/Communicating_sequential_processes">communicating sequential processes</a>.</p>
+</div>
+<div class="paragraph">
+<p>Core.async provides mechanisms to manage asyncronous tasks using lightweight threads called "go-blocks" and queue-like 'channels'.
+Using core.async will let us write elegant code that reads syncronously, and avoids the use of callbacks.</p>
+</div>
+<div class="paragraph">
+<p>go-blocks need a way to pass data between eachother. This is done by interacting with channels.</p>
+</div>
+<div class="paragraph">
+<p>By default a channel is unbuffered. This means that if the channel contains an item, no further items can be written to the channel, until the channel is read from.
+If a channel is full, go-routines that try to write more data to the channel will "park". This corresponds to "blocking" in a threaded environment.
+Buffered channels can easily be created to allow a certain ammount of items to buffer. When the buffer is full, attempts to add an additional item to the channel will
+result in the go-routine parking.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-clojure" data-lang="clojure">(def mychan (chan)) ; Unbuffered channel
+(def buffered-chan (chan 5)) ; channel with buffer of size '5'
+
+; Use '!&gt;' to put an item on a channel within a go-routine
+; Use '!&lt;' to take an item on a channel within a go-routine
+
+(go
+  (!&gt; my-chan "hello")
+  (!&gt; my-chan "world")) ; This go-block will park
+
+; Print hello world infinitely
+
+(defn loop-1
+  []
+  (go-loop
+    (!&gt; my-chan "hello")
+    (!&gt; my-chan "world")
+    (recur)))
+
+(defn loop-2
+  []
+  (go-loop
+    (println (!&lt; my-chan)
+    (recur)))
+
+(loop-1)
+(loop-2)</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<div class="title">Handling concurrency with alt! and mult</div>
+<p>Core.async provides a killer feature with the alt! function, which allows your program to park
+on multiple channels, similar to <a href="https://beej.us/guide/bgnet/html/multi/selectman.html">select()</a> from C/POSIX programming.</p>
+</div>
+<div class="paragraph">
+<p>The <a href="https://clojuredocs.org/clojure.core.async/alt!">alt!</a> function accepts a sequence of clauses. Each clause consists of a channel to take from, and a result expression
+to run when there is data in the channel.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-clojure" data-lang="clojure">(alt!
+  my-chan ([message]
+            (println "Message from unbuffered-chan" message))
+  buffered-chan ([message)]
+            (println "Message from buffered-chan" message))</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>In the above exampe when alt! is invoked, it will park until one of the channels has data available.</p>
+</div>
+<div class="paragraph">
+<p>Using <a href="https://clojuredocs.org/clojure.core.async/mult">mult</a> and <a href="https://clojuredocs.org/clojure.core.async/tap">tap</a>
+we can create a multiplexer from the channel we want multiple clients to read from. With this multiplexer, we can then
+create taps, from the muxtiplexer to new channels. This allows each client to have its own channel to read from,
+without read-race contention. A good pattern to follow is to have all the clients write to the same channel, and
+and all the clients read from their own private tapped channels.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-clojure" data-lang="clojure">(def main-channel (chan))
+(def main-multiplexer (mult main-channel))
+(def reader-channel (chan))
+(tap main-multiplexer reader-channel)
+
+(go
+  (&gt;! main-channel "Hello World")
+  (println (&lt;! reader-channel)))</code></pre>
+</div>
+</div>
+</div>
+<div class="sect2">
+<h3 id="_wiring_up_our_chat_room">Wiring up our chat room</h3>
+<div class="paragraph">
+<p>To implement our chatroom we will use Chord to create a core.async channel abstractions on top of websockets.</p>
+</div>
+<div class="paragraph">
+<p>Chord provides a single macro, with-channel. This macro gives us a channel for the websocket that is setup when a client connects to our
+websocket endpoint. We setup a main-channel, from which all connected clients will recieve messages through a tap that is setup for each connected client.
+When we recieve a message on the client&#8217;s websocket, we will read the message from the websocket channel and write it to our main chatroom channel.
+This will result in all the client&#8217;s recieving the new message on their tapped channels. When the taps recieve a channel, we read from the tapped channel,
+and write the message to the websocket channel.</p>
+</div>
+<div class="paragraph">
+<p>Since we want all messages to have a unique id, we will create the main channel with a transducer.
+The transducer will modify every new message on the channel with the mapping function.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-clojure" data-lang="clojure">; Server code
+
+(ns hablamos.handler
+  (:require
+   [org.httpkit.server :as hk]
+   [chord.http-kit :refer [with-channel]]
+   [compojure.core :refer :all]
+   [compojure.route :as route]
+   [clojure.core.async :as a]
+   [medley.core :refer [random-uuid]]))
+
+; Use a transducer to append a unique id to each message
+; To use a transducer on a channel, you must specify the channel buffer size
+(defonce main-chan (a/chan 1 (map #(assoc % :id (random-uuid)))))
+
+(defonce main-mult (a/mult main-chan))
+
+(def users (atom {}))
+
+(defn ws-handler
+  [req]
+  (with-channel req ws-ch
+    (let [client-tap (a/chan)
+          client-id (random-uuid)]
+      (a/tap main-mult client-tap)
+      (a/go-loop []
+        (a/alt!
+          client-tap ([message]
+                      (if message
+                        (do
+                          (a/&gt;! ws-ch message)
+                          (recur))
+                        (a/close! ws-ch)))
+          ws-ch ([{:keys [message]}]
+                 (if message
+                   (let [{:keys [msg m-type]} message]
+                     (do
+                       (when (= m-type :new-user)
+                         (swap! users assoc client-id msg)
+                         (a/&gt;! ws-ch  {:id (random-uuid)
+                                       :msg (set (vals @users))
+                                       :m-type :init-users}))
+                       (a/&gt;! main-chan message)
+                       (recur)))
+                   (do
+                     (a/untap main-mult client-tap)
+                     (a/&gt;! main-chan {:m-type :user-left
+                                      :msg (get @users client-id)})
+                     (swap! users dissoc client-id)))))))))
+
+(defroutes app
+  (GET "/ws" [] ws-handler))</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>On the client side our code is simpler, because we only need to handle
+establishing a websocket connection, sending new messages to the server,
+and reading from our websocket channel show new messages to the user.</p>
+</div>
+<div class="paragraph">
+<p>Chord only provides one function for clojurescript, chord.client/ws-ch.
+This function establishes a websocket and abstracts it as a core.async channel.</p>
+</div>
+<div class="listingblock">
+<div class="content">
+<pre class="highlight"><code class="language-clojurescript" data-lang="clojurescript">(ns hablamos.core
+  (:require [reagent.core :as reagent :refer [atom]]
+            [chord.client :refer [ws-ch]]
+            [cljs.core.async :as a :refer [&gt;! &lt;! put!]])
+  (:require-macros [cljs.core.async.macros :refer [go go-loop]]))
+
+(defonce msg-list (atom []))
+(defonce users-set (atom #{}))
+(defonce send-chan (a/chan))
+
+(defn setup-websockets! []
+  (go
+    (let [{:keys [ws-channel error]} (&lt;! (ws-ch "ws://localhost:3449/ws"))]
+      (if error
+        (println "Something went wrong with the websocket")
+        (do
+          (send-msg {:m-type :new-user
+                     :msg (:user @app-state)})
+          (send-msgs ws-channel)
+          (receive-msgs ws-channel))))))</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>To send messages to the server, we will use the asyncronous <a href="https://clojuredocs.org/clojure.core.async/put!">put!</a> function, which does not
+block further code execution after being called. This is a good fit for UI programming like with reagent.
+We will put! the new message on the 'send-chan' channel. Seperately, we will run a go-block that
+reads from 'send-chan' and sends them to our websocket as they become available.</p>
+</div>
+<div class="listingblock clojurescript">
+<div class="content">
+<pre class="highlight"><code>(defn send-msg
+  [msg]
+  (put! send-chan msg))
+
+(defn send-msgs
+  [svr-chan]
+  (go-loop []
+    (when-let [msg (&lt;! send-chan)]
+      (&gt;! svr-chan msg)
+      (recur))))
+
+; This is reagent ui code. If you are not familiar with reagent, the interesting code
+; occurs in the on-submit handler function
+(defn chat-input []
+  (let [v (atom nil)]
+    (fn []
+      [:div {:class "textinput"}
+       [:form
+        {:on-submit (fn [x]
+                      (.preventDefault x)
+                      (when-let [msg @v] (send-msg {:msg msg
+                                                    :user (:user @app-state)
+                                                    :m-type :chat})))}
+        [:input {:type "text"
+                 :value @v
+                 :placeholder "Type a message to send to the chatroom"
+                 :on-change #(reset! v (-&gt; % .-target .-value))}]
+        [:br]
+        [:button {:type "submit"} "Send"]]])))</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>For our client now for our client to actually recieve code? Fortunately this is the easiest part
+of the entire application. We simply read from our websocket in a go-block and append messages
+to the global application state. Reagent takes care of re-rendering our view when the messages change.</p>
+</div>
+<div class="listingblock clojurescript">
+<div class="content">
+<pre class="highlight"><code>(defn receive-msgs
+  [svr-chan]
+  (go-loop []
+    (if-let [msg (&lt;! svr-chan)]
+      (let [new-msg (:message msg)]
+        (do
+          (case (:m-type new-msg)
+            :init-users (reset! users-set (:msg new-msg))
+            :chat (swap! msg-list #(conj %1 (dissoc %2 :m-type)) new-msg)
+            :new-user (swap! users-set #(conj %1 (:msg %2)) new-msg)
+            :user-left (swap! users-set #(disj %1 (:msg %2)) new-msg))
+          (recur)))
+      (println "Websocket closed"))))</code></pre>
+</div>
+</div>
+<div class="paragraph">
+<p>Hopefully this has been a useful guided tour to some of the concepts behind core.async.</p>
+</div>
+<div class="paragraph">
+<p>You can checkout the full code here <a href="https://github.com/briangorman/hablamos" class="bare">https://github.com/briangorman/hablamos</a>. In addition, the project has been
+deployed to <a href="https://hablamos-chat.herokuapp.com" class="bare">https://hablamos-chat.herokuapp.com</a> so you can see it live.</p>
+</div>
+<div class="paragraph">
+<p>Core.async contains many other ideas and functionality and this tutorial only shows a small part of core.async.
+Notably, I omitted the &gt;!! and &lt;!! operators, which work outside of go-blocks, at the cost of blocking a normal
+system thread. Another major area to explore is constructing asyncronous data pipelines with the
+<a href="https://clojuredocs.org/clojure.core.async/pipeline">pipeline</a> function.</p>
+</div>
+</div>
+</div>
+
+<div id="post-tags">
+    <b>Tags: </b>
+    
+    <a href="/tags-output/cryogen/">cryogen</a>
+    
+    <a href="/tags-output/asciidoc/">asciidoc</a>
+    
+</div>
+
+
+    <div id="prev-next">
+        
+        
+    </div>
+
+    
+
+
+</div>
+
+            </div>
+        </div>
+    </div>
+    <footer>Copyright &copy; 2018 Brian Gorman
+        <p style="text-align: center;">Powered by <a href="http://cryogenweb.org">Cryogen</a></p></footer>
+</div>
+<script src="//code.jquery.com/jquery-1.11.0.min.js"></script>
+<script src="//maxcdn.bootstrapcdn.com/bootstrap/3.3.0/js/bootstrap.min.js"></script>
+<script src="/js/highlight.pack.js" type="text/javascript"></script>
+<script>hljs.initHighlightingOnLoad();</script>
+
+
+</body>
+</html>

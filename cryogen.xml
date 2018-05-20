@@ -1,0 +1,324 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<rss version='2.0' xmlns:atom='http://www.w3.org/2005/Atom'>
+<channel>
+<atom:link href='http://briangorman.io' rel='self' type='application/rss+xml'/>
+<title>
+(blog brian-gorman)
+</title>
+<link>
+http://briangorman.io
+</link>
+<description>
+This blog is awesome
+</description>
+<lastBuildDate>
+Sun, 20 May 2018 15:25:57 -0500
+</lastBuildDate>
+<generator>
+clj-rss
+</generator>
+<item>
+<guid>
+http://briangorman.io/posts-output/2018-3-4-chatroom/
+</guid>
+<link>
+http://briangorman.io/posts-output/2018-3-4-chatroom/
+</link>
+<title>
+Lets build a Clojurescript chatroom
+</title>
+<description>
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;Recently I have been exploring core.async and websockets.
+In this tutorial I will demonstrate how to build a chatroom using
+clojurescript, core.async and websockets.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;We will be using &lt;a href=&quot;https://github.com/jarohen/chord&quot;&gt;Chord&lt;/a&gt;, &lt;a href=&quot;https://github.com/clojure/core.async&quot;&gt;core.async&lt;/a&gt;, &lt;a href=&quot;http://http-kit.org&quot;&gt;http-kit&lt;/a&gt; and &lt;a href=&quot;https://reagent-project.github.io/&quot;&gt;reagent&lt;/a&gt;.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div id=&quot;toc&quot; class=&quot;toc&quot;&gt;
+&lt;div id=&quot;toctitle&quot; class=&quot;title&quot;&gt;Table of Contents&lt;/div&gt;
+&lt;ul class=&quot;sectlevel2&quot;&gt;
+&lt;li&gt;&lt;a href=&quot;#_core_async_fundamentals&quot;&gt;core.async fundamentals&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;#_wiring_up_our_chat_room&quot;&gt;Wiring up our chat room&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect2&quot;&gt;
+&lt;h3 id=&quot;_core_async_fundamentals&quot;&gt;core.async fundamentals&lt;/h3&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;div class=&quot;title&quot;&gt;Interacting with channels&lt;/div&gt;
+&lt;p&gt;&lt;a href=&quot;https://github.com/clojure/core.async&quot;&gt;core.async&lt;/a&gt; is a library for Clojure/Clojurescript that implements
+&lt;a href=&quot;https://en.wikipedia.org/wiki/Communicating_sequential_processes&quot;&gt;communicating sequential processes&lt;/a&gt;.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;Core.async provides mechanisms to manage asyncronous tasks using lightweight threads called &quot;go-blocks&quot; and queue-like 'channels'.
+Using core.async will let us write elegant code that reads syncronously, and avoids the use of callbacks.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;go-blocks need a way to pass data between eachother. This is done by interacting with channels.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;By default a channel is unbuffered. This means that if the channel contains an item, no further items can be written to the channel, until the channel is read from.
+If a channel is full, go-routines that try to write more data to the channel will &quot;park&quot;. This corresponds to &quot;blocking&quot; in a threaded environment.
+Buffered channels can easily be created to allow a certain ammount of items to buffer. When the buffer is full, attempts to add an additional item to the channel will
+result in the go-routine parking.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;highlight&quot;&gt;&lt;code class=&quot;language-clojure&quot; data-lang=&quot;clojure&quot;&gt;(def mychan (chan)) ; Unbuffered channel
+(def buffered-chan (chan 5)) ; channel with buffer of size '5'
+
+; Use '!&amp;gt;' to put an item on a channel within a go-routine
+; Use '!&amp;lt;' to take an item on a channel within a go-routine
+
+(go
+  (!&amp;gt; my-chan &quot;hello&quot;)
+  (!&amp;gt; my-chan &quot;world&quot;)) ; This go-block will park
+
+; Print hello world infinitely
+
+(defn loop-1
+  []
+  (go-loop
+    (!&amp;gt; my-chan &quot;hello&quot;)
+    (!&amp;gt; my-chan &quot;world&quot;)
+    (recur)))
+
+(defn loop-2
+  []
+  (go-loop
+    (println (!&amp;lt; my-chan)
+    (recur)))
+
+(loop-1)
+(loop-2)&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;div class=&quot;title&quot;&gt;Handling concurrency with alt! and mult&lt;/div&gt;
+&lt;p&gt;Core.async provides a killer feature with the alt! function, which allows your program to park
+on multiple channels, similar to &lt;a href=&quot;https://beej.us/guide/bgnet/html/multi/selectman.html&quot;&gt;select()&lt;/a&gt; from C/POSIX programming.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;The &lt;a href=&quot;https://clojuredocs.org/clojure.core.async/alt!&quot;&gt;alt!&lt;/a&gt; function accepts a sequence of clauses. Each clause consists of a channel to take from, and a result expression
+to run when there is data in the channel.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;highlight&quot;&gt;&lt;code class=&quot;language-clojure&quot; data-lang=&quot;clojure&quot;&gt;(alt!
+  my-chan ([message]
+            (println &quot;Message from unbuffered-chan&quot; message))
+  buffered-chan ([message)]
+            (println &quot;Message from buffered-chan&quot; message))&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;In the above exampe when alt! is invoked, it will park until one of the channels has data available.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;Using &lt;a href=&quot;https://clojuredocs.org/clojure.core.async/mult&quot;&gt;mult&lt;/a&gt; and &lt;a href=&quot;https://clojuredocs.org/clojure.core.async/tap&quot;&gt;tap&lt;/a&gt;
+we can create a multiplexer from the channel we want multiple clients to read from. With this multiplexer, we can then
+create taps, from the muxtiplexer to new channels. This allows each client to have its own channel to read from,
+without read-race contention. A good pattern to follow is to have all the clients write to the same channel, and
+and all the clients read from their own private tapped channels.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;highlight&quot;&gt;&lt;code class=&quot;language-clojure&quot; data-lang=&quot;clojure&quot;&gt;(def main-channel (chan))
+(def main-multiplexer (mult main-channel))
+(def reader-channel (chan))
+(tap main-multiplexer reader-channel)
+
+(go
+  (&amp;gt;! main-channel &quot;Hello World&quot;)
+  (println (&amp;lt;! reader-channel)))&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;sect2&quot;&gt;
+&lt;h3 id=&quot;_wiring_up_our_chat_room&quot;&gt;Wiring up our chat room&lt;/h3&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;To implement our chatroom we will use Chord to create a core.async channel abstractions on top of websockets.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;Chord provides a single macro, with-channel. This macro gives us a channel for the websocket that is setup when a client connects to our
+websocket endpoint. We setup a main-channel, from which all connected clients will recieve messages through a tap that is setup for each connected client.
+When we recieve a message on the client&amp;#8217;s websocket, we will read the message from the websocket channel and write it to our main chatroom channel.
+This will result in all the client&amp;#8217;s recieving the new message on their tapped channels. When the taps recieve a channel, we read from the tapped channel,
+and write the message to the websocket channel.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;Since we want all messages to have a unique id, we will create the main channel with a transducer.
+The transducer will modify every new message on the channel with the mapping function.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;highlight&quot;&gt;&lt;code class=&quot;language-clojure&quot; data-lang=&quot;clojure&quot;&gt;; Server code
+
+(ns hablamos.handler
+  (:require
+   [org.httpkit.server :as hk]
+   [chord.http-kit :refer [with-channel]]
+   [compojure.core :refer :all]
+   [compojure.route :as route]
+   [clojure.core.async :as a]
+   [medley.core :refer [random-uuid]]))
+
+; Use a transducer to append a unique id to each message
+; To use a transducer on a channel, you must specify the channel buffer size
+(defonce main-chan (a/chan 1 (map #(assoc % :id (random-uuid)))))
+
+(defonce main-mult (a/mult main-chan))
+
+(def users (atom {}))
+
+(defn ws-handler
+  [req]
+  (with-channel req ws-ch
+    (let [client-tap (a/chan)
+          client-id (random-uuid)]
+      (a/tap main-mult client-tap)
+      (a/go-loop []
+        (a/alt!
+          client-tap ([message]
+                      (if message
+                        (do
+                          (a/&amp;gt;! ws-ch message)
+                          (recur))
+                        (a/close! ws-ch)))
+          ws-ch ([{:keys [message]}]
+                 (if message
+                   (let [{:keys [msg m-type]} message]
+                     (do
+                       (when (= m-type :new-user)
+                         (swap! users assoc client-id msg)
+                         (a/&amp;gt;! ws-ch  {:id (random-uuid)
+                                       :msg (set (vals @users))
+                                       :m-type :init-users}))
+                       (a/&amp;gt;! main-chan message)
+                       (recur)))
+                   (do
+                     (a/untap main-mult client-tap)
+                     (a/&amp;gt;! main-chan {:m-type :user-left
+                                      :msg (get @users client-id)})
+                     (swap! users dissoc client-id)))))))))
+
+(defroutes app
+  (GET &quot;/ws&quot; [] ws-handler))&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;On the client side our code is simpler, because we only need to handle
+establishing a websocket connection, sending new messages to the server,
+and reading from our websocket channel show new messages to the user.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;Chord only provides one function for clojurescript, chord.client/ws-ch.
+This function establishes a websocket and abstracts it as a core.async channel.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock&quot;&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;highlight&quot;&gt;&lt;code class=&quot;language-clojurescript&quot; data-lang=&quot;clojurescript&quot;&gt;(ns hablamos.core
+  (:require [reagent.core :as reagent :refer [atom]]
+            [chord.client :refer [ws-ch]]
+            [cljs.core.async :as a :refer [&amp;gt;! &amp;lt;! put!]])
+  (:require-macros [cljs.core.async.macros :refer [go go-loop]]))
+
+(defonce msg-list (atom []))
+(defonce users-set (atom #{}))
+(defonce send-chan (a/chan))
+
+(defn setup-websockets! []
+  (go
+    (let [{:keys [ws-channel error]} (&amp;lt;! (ws-ch &quot;ws://localhost:3449/ws&quot;))]
+      (if error
+        (println &quot;Something went wrong with the websocket&quot;)
+        (do
+          (send-msg {:m-type :new-user
+                     :msg (:user @app-state)})
+          (send-msgs ws-channel)
+          (receive-msgs ws-channel))))))&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;To send messages to the server, we will use the asyncronous &lt;a href=&quot;https://clojuredocs.org/clojure.core.async/put!&quot;&gt;put!&lt;/a&gt; function, which does not
+block further code execution after being called. This is a good fit for UI programming like with reagent.
+We will put! the new message on the 'send-chan' channel. Seperately, we will run a go-block that
+reads from 'send-chan' and sends them to our websocket as they become available.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock clojurescript&quot;&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;(defn send-msg
+  [msg]
+  (put! send-chan msg))
+
+(defn send-msgs
+  [svr-chan]
+  (go-loop []
+    (when-let [msg (&amp;lt;! send-chan)]
+      (&amp;gt;! svr-chan msg)
+      (recur))))
+
+; This is reagent ui code. If you are not familiar with reagent, the interesting code
+; occurs in the on-submit handler function
+(defn chat-input []
+  (let [v (atom nil)]
+    (fn []
+      [:div {:class &quot;textinput&quot;}
+       [:form
+        {:on-submit (fn [x]
+                      (.preventDefault x)
+                      (when-let [msg @v] (send-msg {:msg msg
+                                                    :user (:user @app-state)
+                                                    :m-type :chat})))}
+        [:input {:type &quot;text&quot;
+                 :value @v
+                 :placeholder &quot;Type a message to send to the chatroom&quot;
+                 :on-change #(reset! v (-&amp;gt; % .-target .-value))}]
+        [:br]
+        [:button {:type &quot;submit&quot;} &quot;Send&quot;]]])))&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;For our client now for our client to actually recieve code? Fortunately this is the easiest part
+of the entire application. We simply read from our websocket in a go-block and append messages
+to the global application state. Reagent takes care of re-rendering our view when the messages change.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;listingblock clojurescript&quot;&gt;
+&lt;div class=&quot;content&quot;&gt;
+&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;(defn receive-msgs
+  [svr-chan]
+  (go-loop []
+    (if-let [msg (&amp;lt;! svr-chan)]
+      (let [new-msg (:message msg)]
+        (do
+          (case (:m-type new-msg)
+            :init-users (reset! users-set (:msg new-msg))
+            :chat (swap! msg-list #(conj %1 (dissoc %2 :m-type)) new-msg)
+            :new-user (swap! users-set #(conj %1 (:msg %2)) new-msg)
+            :user-left (swap! users-set #(disj %1 (:msg %2)) new-msg))
+          (recur)))
+      (println &quot;Websocket closed&quot;))))&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;Hopefully this has been a useful guided tour to some of the concepts behind core.async.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;You can checkout the full code here &lt;a href=&quot;https://github.com/briangorman/hablamos&quot; class=&quot;bare&quot;&gt;https://github.com/briangorman/hablamos&lt;/a&gt;. In addition, the project has been
+deployed to &lt;a href=&quot;https://hablamos-chat.herokuapp.com&quot; class=&quot;bare&quot;&gt;https://hablamos-chat.herokuapp.com&lt;/a&gt; so you can see it live.&lt;/p&gt;
+&lt;/div&gt;
+&lt;div class=&quot;paragraph&quot;&gt;
+&lt;p&gt;Core.async contains many other ideas and functionality and this tutorial only shows a small part of core.async.
+Notably, I omitted the &amp;gt;!! and &amp;lt;!! operators, which work outside of go-blocks, at the cost of blocking a normal
+system thread. Another major area to explore is constructing asyncronous data pipelines with the
+&lt;a href=&quot;https://clojuredocs.org/clojure.core.async/pipeline&quot;&gt;pipeline&lt;/a&gt; function.&lt;/p&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+</description>
+<pubDate>
+Sun, 04 Mar 2018 00:00:00 -0600
+</pubDate>
+</item>
+</channel>
+</rss>
